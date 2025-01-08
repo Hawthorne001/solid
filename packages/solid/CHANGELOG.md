@@ -1,5 +1,107 @@
 # solid-js
 
+## 1.9.4
+
+### Patch Changes
+
+- b93956f: fix escaping in resolution done outside of DOM Expressions
+- 199dd69: fix reconcile null guard
+- 7f9cd3d: lazy image, tagged template detection, security fixes
+- 32aa744: Improve resolving arguments in createResource
+
+## 1.9.3
+
+### Patch Changes
+
+- bb6ce8b: Reordering setter overloads
+- 9b70a15: validation fixes, type updates, ssr attribute fix
+
+## 1.9.2
+
+### Patch Changes
+
+- 22aff14: update validation: smaller lib, opt out, better table handling
+  add `on:` event types for native events
+- e2e2a03: Fix setter type compatibility with kobalte select and add tests
+
+## 1.9.1
+
+### Patch Changes
+
+- fb67b687: fix anchor host interfering with event delegation
+- 7ecf92d3: fix #2304 component props can be string, explicit imports in tests
+
+## 1.9.0
+
+### Minor Changes
+
+- 4f8597dc: better handling of exports client/server
+- 120bf06d: fix!: Remove browser field from package.json
+- 2a3a1980: update dom-expressions
+  - Improved Custom Element/Shadow DOM traversal - @olivercoad
+  - Better heuristic to determine when to importNode - @titoBouzout
+  - handleEvent syntax to allow custom event properties when not delegated - @titoBouzout
+  - support for bool: attribute namespace - @titoBouzout
+  - add "is" as detection for custom element - @titoBouzout
+  - fix missing exports in different envs - @trusktr
+  - better hydration mismatch errors - @ryansolid
+  - improved HTML validation of JSX partials - @titoBouzout
+
+### Patch Changes
+
+- 80b09589: Improve signal setter type for code completion of string literal unions.
+- 51bec61a: update TS to NodeNext
+
+## 1.8.23
+
+### Patch Changes
+
+- bc20a4ce: update types, fix hydration cancel timing error, sync ssr script appending
+- 9697c94b: jsdoc: Fix incorrect links of reactive utility `on`
+- 9e192d7e: fix #2282: Add Check for Proxy support
+- 379293d9: use correct hydration id in server lazy
+- 73c00927: Fix missing code block end in `useTransition`'s jsdoc comment
+- e4b2c668: fix missing disposal of nested transition nodes
+- 94929afa: fix wrapping of object with `null` prototype
+
+## 1.8.22
+
+### Patch Changes
+
+- f8ae663c: Fix broken links in Readme
+- 19d0295f: fix stranded effects during hydration cancelation
+- 26128ec0: fix #2259 attr: in ssr, updates some types
+
+## 1.8.21
+
+### Patch Changes
+
+- a036a63a: shortcut hydrate call when hydration is done
+
+## 1.8.20
+
+### Patch Changes
+
+- c8fe58e9: fix #2250 hydration error, fix lazy component loading, better hydration cancelation
+- 80dd2769: fix #2236 improper shortcircuit in resource hydration
+
+## 1.8.19
+
+### Patch Changes
+
+- 3fc015c2: track length in array helpers, fix mobx external source
+- f909c1c1: fix #2228 - chained resources with initial values
+- 816a5c61: fix #2209 processing parent before child value binding in select
+- 424a31a3: optimize hydration keys
+
+## 1.8.18
+
+### Patch Changes
+
+- 6693b56f: update TS, custom elements, and a lot compiler fixes
+  fixes #2144, #2145, #2178, #2192
+- a8c2a8f3: remove weird server resource hack, fix hydrated resource state
+
 ## 1.8.17
 
 ### Patch Changes

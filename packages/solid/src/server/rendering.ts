@@ -29,6 +29,61 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
   ? JSX.IntrinsicElements[T]
   : Record<string, unknown>;
 
+// these methods are duplicates from solid-js/web
+// we need a better solution for this in the future
+function escape(s: any, attr?: boolean) {
+  const t = typeof s;
+  if (t !== "string") {
+    if (!attr && t === "function") return escape(s());
+    if (!attr && Array.isArray(s)) {
+      for (let i = 0; i < s.length; i++) s[i] = escape(s[i]);
+      return s;
+    }
+    if (attr && t === "boolean") return String(s);
+    return s;
+  }
+  const delim = attr ? '"' : "<";
+  const escDelim = attr ? "&quot;" : "&lt;";
+  let iDelim = s.indexOf(delim);
+  let iAmp = s.indexOf("&");
+
+  if (iDelim < 0 && iAmp < 0) return s;
+
+  let left = 0,
+    out = "";
+
+  while (iDelim >= 0 && iAmp >= 0) {
+    if (iDelim < iAmp) {
+      if (left < iDelim) out += s.substring(left, iDelim);
+      out += escDelim;
+      left = iDelim + 1;
+      iDelim = s.indexOf(delim, left);
+    } else {
+      if (left < iAmp) out += s.substring(left, iAmp);
+      out += "&amp;";
+      left = iAmp + 1;
+      iAmp = s.indexOf("&", left);
+    }
+  }
+
+  if (iDelim >= 0) {
+    do {
+      if (left < iDelim) out += s.substring(left, iDelim);
+      out += escDelim;
+      left = iDelim + 1;
+      iDelim = s.indexOf(delim, left);
+    } while (iDelim >= 0);
+  } else
+    while (iAmp >= 0) {
+      if (left < iAmp) out += s.substring(left, iAmp);
+      out += "&amp;";
+      left = iAmp + 1;
+      iAmp = s.indexOf("&", left);
+    }
+
+  return left < s.length ? out + s.substring(left) : out;
+}
+
 function resolveSSRNode(node: any): string {
   const t = typeof node;
   if (t === "string") return node;
@@ -49,8 +104,27 @@ function resolveSSRNode(node: any): string {
 
 type SharedConfig = {
   context?: HydrationContext;
+  getContextId(): string;
+  getNextContextId(): string;
 };
-export const sharedConfig: SharedConfig = {};
+export const sharedConfig: SharedConfig = {
+  context: undefined,
+  getContextId() {
+    if (!this.context) throw new Error(`getContextId cannot be used under non-hydrating context`);
+    return getContextId(this.context.count);
+  },
+  getNextContextId() {
+    if (!this.context)
+      throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    return getContextId(this.context.count++);
+  }
+};
+
+function getContextId(count: number) {
+  const num = String(count),
+    len = num.length - 1;
+  return sharedConfig.context!.id + (len ? String.fromCharCode(96 + len) : "") + num;
+}
 
 function setHydrateContext(context?: HydrationContext): void {
   sharedConfig.context = context;
@@ -60,16 +134,14 @@ function nextHydrateContext(): HydrationContext | undefined {
   return sharedConfig.context
     ? {
         ...sharedConfig.context,
-        id: `${sharedConfig.context.id}${sharedConfig.context.count++}-`,
+        id: sharedConfig.getNextContextId(),
         count: 0
       }
     : undefined;
 }
 
 export function createUniqueId(): string {
-  const ctx = sharedConfig.context;
-  if (!ctx) throw new Error(`createUniqueId cannot be used under non-hydrating context`);
-  return `${ctx.id}${ctx.count++}`;
+  return sharedConfig.getNextContextId();
 }
 
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
@@ -266,7 +338,7 @@ export function ErrorBoundary(props: {
     clean: any,
     sync = true;
   const ctx = sharedConfig.context!;
-  const id = ctx.id + ctx.count;
+  const id = sharedConfig.getContextId();
   function displayFallback() {
     cleanNode(clean);
     ctx.serialize(id, error);
@@ -287,7 +359,7 @@ export function ErrorBoundary(props: {
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!--!$e${id}-->${resolveSSRNode(res)}<!--!$/e${id}-->` };
+  return { t: `<!--!$e${id}-->${resolveSSRNode(escape(res))}<!--!$/e${id}-->` };
 }
 
 // Suspense Context
@@ -357,18 +429,14 @@ export function createResource<T, S>(
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options: ResourceOptions<T> | ResourceOptions<undefined> = {}
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
-  if (arguments.length === 2) {
-    if (typeof fetcher === "object") {
-      options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
-      fetcher = source as ResourceFetcher<S, T>;
-      source = true as ResourceSource<S>;
-    }
-  } else if (arguments.length === 1) {
+  if (typeof fetcher !== "function") {
+    options = (fetcher || {}) as ResourceOptions<T> | ResourceOptions<undefined>;
     fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
+
   const contexts = new Set<SuspenseContextType>();
-  const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+  const id = sharedConfig.getNextContextId();
   let resource: { ref?: any; data?: T } = {};
   let value = options.storage ? options.storage(options.initialValue)[0]() : options.initialValue;
   let p: Promise<T> | T | null;
@@ -383,11 +451,11 @@ export function createResource<T, S>(
   }
   const read = () => {
     if (error) throw error;
-    if (resourceContext && p) resourceContext.push(p!);
     const resolved =
       options.ssrLoadFrom !== "initial" &&
       sharedConfig.context!.async &&
       "data" in sharedConfig.context!.resources[id];
+    if (!resolved && resourceContext) resourceContext.push(id);
     if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
@@ -413,14 +481,14 @@ export function createResource<T, S>(
       value = ctx.resources[id].data;
       return;
     }
-    resourceContext = [];
-    const lookup = typeof source === "function" ? (source as () => S)() : source;
-    if (resourceContext.length) {
-      p = Promise.all(resourceContext).then(() =>
-        (fetcher as ResourceFetcher<S, T>)((source as Accessor<S>)(), { value })
-      );
+    let lookup;
+    try {
+      resourceContext = [];
+      lookup = typeof source === "function" ? (source as () => S)() : source;
+      if (resourceContext.length) return;
+    } finally {
+      resourceContext = null;
     }
-    resourceContext = null;
     if (!p) {
       if (lookup == null || lookup === false) return;
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
@@ -476,7 +544,7 @@ export function lazy<T extends Component<any>>(
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
-    const id = sharedConfig.context!.id.slice(0, -1);
+    const id = sharedConfig.context!.id;
     let ref = sharedConfig.context!.lazy[id];
     if (ref) p = ref;
     else load(id);
@@ -562,7 +630,7 @@ export function SuspenseList(props: {
 export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
-  const id = ctx.id + ctx.count;
+  const id = sharedConfig.getContextId();
   const o = createOwner();
   const value: SuspenseContextType =
     ctx.suspense[id] ||
@@ -571,7 +639,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
-          done!(resolveSSRNode(res));
+          done!(resolveSSRNode(escape(res)));
         }
       }
     });
@@ -607,14 +675,16 @@ export function Suspense(props: { fallback?: string; children: string }) {
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   return catchError(() => {
     if (ctx.async) {
-      setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
+      setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0F", noHydrate: true });
       const res = {
-        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!--pl-${id}-->`
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(
+          escape(props.fallback)
+        )}<!--pl-${id}-->`
       };
       setHydrateContext(ctx);
       return res;
     }
-    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0F" });
     ctx.serialize(id, "$$f");
     return props.fallback;
   }, suspenseError);

@@ -1,5 +1,52 @@
 # babel-preset-solid
 
+## 1.9.3
+
+### Patch Changes
+
+- 9b70a15: validation fixes, type updates, ssr attribute fix
+
+## 1.9.2
+
+### Patch Changes
+
+- 22aff14: update validation: smaller lib, opt out, better table handling
+  add `on:` event types for native events
+
+## 1.9.0
+
+### Minor Changes
+
+- 2a3a1980: update dom-expressions
+  - Improved Custom Element/Shadow DOM traversal - @olivercoad
+  - Better heuristic to determine when to importNode - @titoBouzout
+  - handleEvent syntax to allow custom event properties when not delegated - @titoBouzout
+  - support for bool: attribute namespace - @titoBouzout
+  - add "is" as detection for custom element - @titoBouzout
+  - fix missing exports in different envs - @trusktr
+  - better hydration mismatch errors - @ryansolid
+  - improved HTML validation of JSX partials - @titoBouzout
+
+## 1.8.22
+
+### Patch Changes
+
+- 26128ec0: fix #2259 attr: in ssr, updates some types
+
+## 1.8.19
+
+### Patch Changes
+
+- 816a5c61: fix #2209 processing parent before child value binding in select
+- 424a31a3: optimize hydration keys
+
+## 1.8.18
+
+### Patch Changes
+
+- 6693b56f: update TS, custom elements, and a lot compiler fixes
+  fixes #2144, #2145, #2178, #2192
+
 ## 1.8.17
 
 ### Patch Changes
