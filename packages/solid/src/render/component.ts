@@ -5,8 +5,10 @@ import {
   createMemo,
   devComponent,
   $PROXY,
+  SUPPORTS_PROXY,
   $DEVCOMP,
-  EffectFunction
+  EffectFunction,
+  IS_DEV
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
@@ -20,33 +22,33 @@ export function enableHydration() {
  * A general `Component` has no implicit `children` prop.  If desired, you can
  * specify one as in `Component<{name: String, children: JSX.Element}>`.
  */
-export type Component<P = {}> = (props: P) => JSX.Element;
+export type Component<P extends Record<string, any> = {}> = (props: P) => JSX.Element;
 
 /**
  * Extend props to forbid the `children` prop.
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
-export type VoidProps<P = {}> = P & { children?: never };
+export type VoidProps<P extends Record<string, any> = {}> = P & { children?: never };
 /**
  * `VoidComponent` forbids the `children` prop.
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
-export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidProps<P>>;
 
 /**
  * Extend props to allow an optional `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
-export type ParentProps<P = {}> = P & { children?: JSX.Element };
+export type ParentProps<P extends Record<string, any> = {}> = P & { children?: JSX.Element };
 /**
  * `ParentComponent` allows an optional `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
-export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+export type ParentComponent<P extends Record<string, any> = {}> = Component<ParentProps<P>>;
 
 /**
  * Extend props to require a `children` prop with the specified type.
@@ -54,17 +56,19 @@ export type ParentComponent<P = {}> = Component<ParentProps<P>>;
  * typically a function that receives specific argument types.
  * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+export type FlowProps<P extends Record<string, any> = {}, C = JSX.Element> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  * Use this for components where you need a specific child type,
  * typically a function that receives specific argument types.
  * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
+export type FlowComponent<P extends Record<string, any> = {}, C = JSX.Element> = Component<
+  FlowProps<P, C>
+>;
 
 /** @deprecated: use `ParentProps` instead */
-export type PropsWithChildren<P = {}> = ParentProps<P>;
+export type PropsWithChildren<P extends Record<string, any> = {}> = ParentProps<P>;
 
 export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
 
@@ -88,19 +92,22 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
  */
 export type Ref<T> = T | ((val: T) => void);
 
-export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
+export function createComponent<T extends Record<string, any>>(
+  Comp: Component<T>,
+  props: T
+): JSX.Element {
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_"
+      const r = IS_DEV
         ? devComponent(Comp, props || ({} as T))
         : untrack(() => Comp(props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
   }
-  if ("_SOLID_DEV_") return devComponent(Comp, props || ({} as T));
+  if (IS_DEV) return devComponent(Comp, props || ({} as T));
   return untrack(() => Comp(props || ({} as T)));
 }
 
@@ -197,7 +204,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     sources[i] =
       typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
   }
-  if (proxy) {
+  if (SUPPORTS_PROXY && proxy) {
     return new Proxy(
       {
         get(property: string | number | symbol) {
@@ -280,7 +287,7 @@ export function splitProps<
   T extends Record<any, any>,
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
-  if ($PROXY in props) {
+  if (SUPPORTS_PROXY && $PROXY in props) {
     const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
     const res = keys.map(k => {
       return new Proxy(
@@ -356,7 +363,7 @@ export function lazy<T extends Component<any>>(
       sharedConfig.count || (sharedConfig.count = 0);
       sharedConfig.count++;
       (p || (p = fn())).then(mod => {
-        setHydrateContext(ctx);
+        !sharedConfig.done && setHydrateContext(ctx);
         sharedConfig.count!--;
         set(() => mod.default);
         setHydrateContext();
@@ -367,18 +374,18 @@ export function lazy<T extends Component<any>>(
       comp = s;
     }
     let Comp: T | undefined;
-    return createMemo(
-      () =>
-        (Comp = comp()) &&
-        untrack(() => {
-          if ("_SOLID_DEV_") Object.assign(Comp!, { [$DEVCOMP]: true });
-          if (!ctx) return Comp!(props);
-          const c = sharedConfig.context;
-          setHydrateContext(ctx);
-          const r = Comp!(props);
-          setHydrateContext(c);
-          return r;
-        })
+    return createMemo(() =>
+      (Comp = comp())
+        ? untrack(() => {
+            if (IS_DEV) Object.assign(Comp!, { [$DEVCOMP]: true });
+            if (!ctx || sharedConfig.done) return Comp!(props);
+            const c = sharedConfig.context;
+            setHydrateContext(ctx);
+            const r = Comp!(props);
+            setHydrateContext(c);
+            return r;
+          })
+        : ""
     ) as unknown as JSX.Element;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
@@ -388,5 +395,5 @@ export function lazy<T extends Component<any>>(
 let counter = 0;
 export function createUniqueId(): string {
   const ctx = sharedConfig.context;
-  return ctx ? `${ctx.id}${ctx.count++}` : `cl-${counter++}`;
+  return ctx ? sharedConfig.getNextContextId() : `cl-${counter++}`;
 }

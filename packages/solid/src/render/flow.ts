@@ -7,14 +7,14 @@ import {
   Accessor,
   Setter,
   onCleanup,
-  MemoOptions
+  IS_DEV
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
 const narrowedError = (name: string) =>
-  "_SOLID_DEV_"
+  IS_DEV
     ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
     : `Stale read from <${name}>.`;
 
@@ -37,7 +37,7 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
   children: (item: T[number], index: Accessor<number>) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return ("_SOLID_DEV_"
+  return (IS_DEV
     ? createMemo(
         mapArray(() => props.each, props.children, fallback || undefined),
         undefined,
@@ -67,7 +67,7 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
   children: (item: Accessor<T[number]>, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return ("_SOLID_DEV_"
+  return (IS_DEV
     ? createMemo(
         indexArray(() => props.each, props.children, fallback || undefined),
         undefined,
@@ -105,16 +105,23 @@ export function Show<T>(props: {
   children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 }): JSX.Element {
   const keyed = props.keyed;
-  const condition = createMemo<T | undefined | null | boolean>(
+  const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
     undefined,
-    "_SOLID_DEV_"
-      ? {
-          equals: (a, b) => (keyed ? a === b : !a === !b),
-          name: "condition"
-        }
-      : { equals: (a, b) => (keyed ? a === b : !a === !b) }
+    IS_DEV ? { name: "condition value" } : undefined
   );
+  const condition = keyed
+    ? conditionValue
+    : createMemo(
+        conditionValue,
+        undefined,
+        IS_DEV
+          ? {
+              equals: (a, b) => !a === !b,
+              name: "condition"
+            }
+          : { equals: (a, b) => !a === !b }
+      );
   return createMemo(
     () => {
       const c = condition();
@@ -128,7 +135,7 @@ export function Show<T>(props: {
                   ? (c as T)
                   : () => {
                       if (!untrack(condition)) throw narrowedError("Show");
-                      return props.when;
+                      return conditionValue();
                     }
               )
             )
@@ -137,11 +144,11 @@ export function Show<T>(props: {
       return props.fallback;
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }
 
-type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
+type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
 
 /**
  * Switches between content based on mutually exclusive conditions
@@ -158,47 +165,58 @@ type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
-  let keyed = false;
-  const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
-    (keyed ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
-  const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
-    evalConditions = createMemo(
-      (): EvalConditions => {
-        let conds = conditions();
-        if (!Array.isArray(conds)) conds = [conds];
-        for (let i = 0; i < conds.length; i++) {
-          const c = conds[i].when;
-          if (c) {
-            keyed = !!conds[i].keyed;
-            return [i, c, conds[i]];
-          }
-        }
-        return [-1];
-      },
-      undefined,
-      "_SOLID_DEV_" ? { equals, name: "eval conditions" } : { equals }
-    );
+  const chs = children(() => props.children);
+  const switchFunc = createMemo(() => {
+    const ch = chs() as unknown as MatchProps<unknown> | MatchProps<unknown>[];
+    const mps = Array.isArray(ch) ? ch : [ch];
+    let func: Accessor<EvalConditions | undefined> = () => undefined;
+    for (let i = 0; i < mps.length; i++) {
+      const index = i;
+      const mp = mps[i];
+      const prevFunc = func;
+      const conditionValue = createMemo(
+        () => (prevFunc() ? undefined : mp.when),
+        undefined,
+        IS_DEV ? { name: "condition value" } : undefined
+      );
+      const condition = mp.keyed
+        ? conditionValue
+        : createMemo(
+            conditionValue,
+            undefined,
+            IS_DEV
+              ? {
+                  equals: (a, b) => !a === !b,
+                  name: "condition"
+                }
+              : { equals: (a, b) => !a === !b }
+          );
+      func = () => prevFunc() || (condition() ? [index, conditionValue, mp] : undefined);
+    }
+    return func;
+  });
   return createMemo(
     () => {
-      const [index, when, cond] = evalConditions();
-      if (index < 0) return props.fallback;
-      const c = cond!.children;
-      const fn = typeof c === "function" && c.length > 0;
+      const sel = switchFunc()();
+      if (!sel) return props.fallback;
+      const [index, conditionValue, mp] = sel;
+      const child = mp.children;
+      const fn = typeof child === "function" && child.length > 0;
       return fn
         ? untrack(() =>
-            (c as any)(
-              keyed
-                ? when
+            (child as any)(
+              mp.keyed
+                ? (conditionValue() as any)
                 : () => {
-                    if (untrack(evalConditions)[0] !== index) throw narrowedError("Match");
-                    return cond!.when;
+                    if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
+                    return conditionValue();
                   }
             )
           )
-        : c;
+        : child;
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "eval conditions" } : undefined
   ) as unknown as JSX.Element;
 }
 
@@ -258,11 +276,8 @@ export function ErrorBoundary(props: {
 }): JSX.Element {
   let err;
   if (sharedConfig!.context && sharedConfig!.load)
-    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
-  const [errored, setErrored] = createSignal<any>(
-    err,
-    "_SOLID_DEV_" ? { name: "errored" } : undefined
-  );
+    err = sharedConfig.load(sharedConfig.getContextId());
+  const [errored, setErrored] = createSignal<any>(err, IS_DEV ? { name: "errored" } : undefined);
   Errors || (Errors = new Set());
   Errors.add(setErrored);
   onCleanup(() => Errors.delete(setErrored));
@@ -271,12 +286,12 @@ export function ErrorBoundary(props: {
       let e: any;
       if ((e = errored())) {
         const f = props.fallback;
-        if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
+        if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(e);
         return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
       }
       return catchError(() => props.children, setErrored);
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }

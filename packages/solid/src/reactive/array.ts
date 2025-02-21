@@ -5,7 +5,8 @@ import {
   createSignal,
   Accessor,
   Setter,
-  $TRACK
+  $TRACK,
+  IS_DEV
 } from "./signal.js";
 
 const FALLBACK = Symbol("fallback");
@@ -59,12 +60,12 @@ export function mapArray<T, U>(
   onCleanup(() => dispose(disposers));
   return () => {
     let newItems = list() || [],
+      newLen = newItems.length,
       i: number,
       j: number;
     (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
-      let newLen = newItems.length,
-        newIndices: Map<T | typeof FALLBACK, number>,
+      let newIndices: Map<T | typeof FALLBACK, number>,
         newIndicesNext: number[],
         temp: U[],
         tempdisposers: (() => void)[],
@@ -166,7 +167,7 @@ export function mapArray<T, U>(
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
       if (indexes) {
-        const [s, set] = "_SOLID_DEV_" ? createSignal(j, { name: "index" }) : createSignal(j);
+        const [s, set] = IS_DEV ? createSignal(j, { name: "index" }) : createSignal(j);
         indexes[j] = set;
         return mapFn(newItems[j], s);
       }
@@ -196,10 +197,11 @@ export function indexArray<T, U>(
 
   onCleanup(() => dispose(disposers));
   return () => {
-    const newItems = list() || [];
+    const newItems = list() || [],
+      newLen = newItems.length;
     (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
-      if (newItems.length === 0) {
+      if (newLen === 0) {
         if (len !== 0) {
           dispose(disposers);
           disposers = [];
@@ -226,7 +228,7 @@ export function indexArray<T, U>(
         len = 0;
       }
 
-      for (i = 0; i < newItems.length; i++) {
+      for (i = 0; i < newLen; i++) {
         if (i < items.length && items[i] !== newItems[i]) {
           signals[i](() => newItems[i]);
         } else if (i >= items.length) {
@@ -236,13 +238,13 @@ export function indexArray<T, U>(
       for (; i < items.length; i++) {
         disposers[i]();
       }
-      len = signals.length = disposers.length = newItems.length;
+      len = signals.length = disposers.length = newLen;
       items = newItems.slice(0);
       return (mapped = mapped.slice(0, len));
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = "_SOLID_DEV_"
+      const [s, set] = IS_DEV
         ? createSignal(newItems[i], { name: "value" })
         : createSignal(newItems[i]);
       signals[i] = set;

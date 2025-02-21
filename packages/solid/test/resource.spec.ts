@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import {
   createRoot,
   createSignal,
@@ -8,9 +9,9 @@ import {
   ResourceFetcherInfo,
   Signal,
   createMemo
-} from "../src";
+} from "../src/index.js";
 
-import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
+import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src/index.js";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -383,4 +384,34 @@ describe("using Resource with custom store", () => {
     expect(addr).toBe(1);
     expect(street).toBe(2);
   });
+});
+
+describe("createResource can be wrapped", () => {
+  const fns: [name: string, function: typeof createResource][] = [
+    ["original createResource", createResource],
+    // @ts-ignore
+    ["createResource(...args)", (...args) => createResource(...args)],
+    // @ts-ignore
+    ["createResource(a, b, c)", (a, b, c) => createResource(a, b, c)]
+  ];
+
+  for (const [name, fn] of fns) {
+    test(`only fetcher in ${name}`, () => {
+      const [[data], dispose] = createRoot(dispose => [fn(() => 123), dispose]);
+      expect(data()).toBe(123);
+      dispose();
+    });
+
+    test(`fetcher and source in ${name}`, () => {
+      const [source, setSource] = createSignal(1);
+
+      const [[data], dispose] = createRoot(dispose => [fn(source, v => v), dispose]);
+      expect(data()).toBe(1);
+
+      setSource(2);
+      expect(data()).toBe(2);
+
+      dispose();
+    });
+  }
 });
